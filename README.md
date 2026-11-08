@@ -36,11 +36,18 @@ Aplicación móvil nativa para **Android (Kotlin/Java + Jetpack Compose + OpenGL
 
 ---
 
-## Compilación
+## Descarga e Instalación
+
+Puedes descargar directamente el archivo APK listo para instalar en tu dispositivo Android desde la sección de **Releases** en GitHub:
+
+👉 [**Descargar MultiSnesByFDP-v1.0.0.apk (Releases)**](https://github.com/piero0123333-sketch/multi-snes-by-fdp/releases/tag/v1.0.0)
+
+---
+
+## Compilación local
+
+Para compilar el proyecto desde el código fuente con Android Studio o mediante terminal:
 
 ```bash
 ./gradlew assembleDebug
 ```
-
-El APK compilado también se encuentra listo para instalar en:
-- `apk/MultiSnesByFDP-debug.apk`
