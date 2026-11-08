@@ -4,6 +4,7 @@
 build/
 app/build/
 app/.cxx/
+apk/
 
 # Local SDK configuration
 local.properties
