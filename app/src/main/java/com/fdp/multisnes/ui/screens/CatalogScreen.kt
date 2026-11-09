@@ -2,9 +2,14 @@ package com.fdp.multisnes.ui.screens
 
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.view.KeyEvent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +25,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,19 +37,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.fdp.multisnes.MultiSnesApp
 import com.fdp.multisnes.data.model.RomGame
 import com.fdp.multisnes.data.model.StarBadge
 import com.fdp.multisnes.data.rom.CoverLoader
-import java.io.File
 import com.fdp.multisnes.ui.theme.MultiSnesTopBar
 import com.fdp.multisnes.ui.theme.OutlinedPixelText
 import com.fdp.multisnes.ui.theme.PixelFloppyIcon
@@ -51,9 +68,15 @@ import com.fdp.multisnes.ui.theme.PixelGearFloatingButton
 import com.fdp.multisnes.ui.theme.PixelStarBadge
 import com.fdp.multisnes.ui.theme.PixelTypography
 import com.fdp.multisnes.ui.theme.SnesPalette
+import java.io.File
+
+private val FocusCyanBorder = Color(0xFF00E5FF)
+private val FocusYellowShadow = Color(0xFFFFD600)
+private val NormalSubtleBorder = Color(0xFF3A3A3C)
 
 /**
- * Pantalla principal del Catálogo de Juegos idéntica a la Imagen 1 (y fondo horizontal de Imagen 4).
+ * Pantalla principal del Catálogo de Juegos con soporte de resaltado de alto contraste
+ * y animación de escala para navegación con mando físico (D-Pad / Joystick) — MÓDULO 1.
  */
 @Composable
 fun CatalogScreen(
@@ -67,6 +90,13 @@ fun CatalogScreen(
 ) {
     val configuration = LocalConfiguration.current
     val columns = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 5 else 3
+    val firstCardFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(games.size) {
+        if (games.isNotEmpty()) {
+            runCatching { firstCardFocusRequester.requestFocus() }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -94,18 +124,23 @@ fun CatalogScreen(
                     columns = GridCells.Fixed(columns),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = 10.dp,
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 12.dp,
                         bottom = 84.dp
                     ),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(items = games, key = { it.id }) { game ->
+                    itemsIndexed(items = games, key = { _, item -> item.id }) { index, game ->
                         GameCartridgeCard(
                             game = game,
-                            onClick = { onSelectGame(game) }
+                            onClick = { onSelectGame(game) },
+                            modifier = if (index == 0) {
+                                Modifier.focusRequester(firstCardFocusRequester)
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                 }
@@ -125,9 +160,25 @@ fun CatalogScreen(
 @Composable
 private fun GameCartridgeCard(
     game: RomGame,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    // MÓDULO 1: Animación suave al recibir foco del mando (scaleX = 1.06f, scaleY = 1.06f, translationZ = 8f)
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.06f else 1.0f,
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        label = "cardFocusScale"
+    )
+    val animatedTranslationZPx by animateFloatAsState(
+        targetValue = if (isFocused) with(density) { 8.dp.toPx() } else 0f,
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        label = "cardFocusTranslationZ"
+    )
+
     var resolvedCoverPath by remember(game.id, game.coverImagePath) {
         mutableStateOf(game.coverImagePath)
     }
@@ -157,10 +208,37 @@ private fun GameCartridgeCard(
         onDispose { }
     }
 
+    val cardShape = RoundedCornerShape(10.dp)
+
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .zIndex(if (isFocused) 2f else 0f)
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+                shadowElevation = animatedTranslationZPx
+                shape = cardShape
+                clip = false
+            }
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused || focusState.hasFocus
+            }
+            .onKeyEvent { keyEvent ->
+                val native = keyEvent.nativeKeyEvent
+                if (native.action == KeyEvent.ACTION_DOWN &&
+                    (native.keyCode == KeyEvent.KEYCODE_BUTTON_A ||
+                        native.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        native.keyCode == KeyEvent.KEYCODE_ENTER ||
+                        native.keyCode == KeyEvent.KEYCODE_BUTTON_START)
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .clip(cardShape)
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -170,19 +248,50 @@ private fun GameCartridgeCard(
                     )
                 )
             )
-            .border(2.dp, Color.Black, RoundedCornerShape(10.dp))
+            // MÓDULO 1: Borde Retro de Alto Contraste al enfocar con mando (4dp #00E5FF + detalle/sombra amarilla #FFD600)
+            // vs Estado normal (2dp #3A3A3C)
+            .then(
+                if (isFocused) {
+                    Modifier
+                        .border(4.dp, FocusCyanBorder, cardShape)
+                        .drawWithContent {
+                            drawContent()
+                            val cornerPx = 10.dp.toPx()
+                            val outerStroke = 2.dp.toPx()
+                            val inset = 4.dp.toPx()
+                            // Detalle/sombra interior amarilla estilo pixel-art (#FFD600) junto al borde cian de 4dp
+                            drawRoundRect(
+                                color = FocusYellowShadow,
+                                topLeft = Offset(inset, inset),
+                                size = Size(
+                                    width = (size.width - inset * 2f).coerceAtLeast(0f),
+                                    height = (size.height - inset * 2f).coerceAtLeast(0f)
+                                ),
+                                cornerRadius = CornerRadius(cornerPx - 2.dp.toPx(), cornerPx - 2.dp.toPx()),
+                                style = Stroke(width = outerStroke)
+                            )
+                        }
+                } else {
+                    Modifier.border(2.dp, NormalSubtleBorder, cardShape)
+                }
+            )
+            .focusable()
             .clickable(onClick = onClick)
             .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Recuadro superior oscuro con borde morado para la portada del juego
+        // Recuadro superior oscuro con borde morado (o amarillo brillante si está enfocado) para la portada
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1.12f)
                 .clip(RoundedCornerShape(7.dp))
                 .background(Color(0xFF14141C))
-                .border(2.dp, SnesPalette.FramePurple, RoundedCornerShape(7.dp))
+                .border(
+                    width = 2.dp,
+                    color = if (isFocused) FocusYellowShadow else SnesPalette.FramePurple,
+                    shape = RoundedCornerShape(7.dp)
+                )
                 .padding(3.dp)
         ) {
             if (resolvedCoverPath != null) {
@@ -201,7 +310,7 @@ private fun GameCartridgeCard(
 
         Spacer(modifier = Modifier.height(5.dp))
 
-        // Título centrado en mayúsculas (hasta 2 líneas como CHRONO TRIGGER / THE LEGEND OF ZELDA)
+        // Título centrado en mayúsculas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -211,6 +320,7 @@ private fun GameCartridgeCard(
             OutlinedPixelText(
                 text = game.title,
                 style = PixelTypography.CardGameTitle,
+                color = if (isFocused) FocusYellowShadow else Color.White,
                 maxLines = 2
             )
         }
@@ -240,10 +350,11 @@ private fun GameCartridgeCard(
                 }
             }
 
-            // Disquete azul si tiene partida guardada, gris si tiene sesiones sin SaveState, oculto en 0%
-            if (game.hasSaveState || game.progressPercent > 0) {
+            // Disquete azul si tiene partida guardada (manual o autoguardado al salir), gris si tiene sesiones
+            val hasAnySave = game.hasSaveState || game.hasAutoSaveExit
+            if (hasAnySave || game.progressPercent > 0) {
                 PixelFloppyIcon(
-                    isSavedBlue = game.hasSaveState,
+                    isSavedBlue = hasAnySave,
                     modifier = Modifier.size(16.dp)
                 )
             } else {
@@ -348,7 +459,7 @@ private fun EmptyLibraryPrompt(
                 style = PixelTypography.SectionTitle
             )
             OutlinedPixelText(
-                text = "Compatible con Super Bomberman, Mega Man X/X2/X3 (CX4), Chrono Trigger, Donkey Kong Country y cualquier .SFC / .SMC / .ZIP.",
+                text = "Compatible con Super Bomberman, Mega Man X/X2/X3 (CX4), Chrono Trigger, Donkey Kong Country y cualquier .SFC / .SMC / .ZIP / .IPS / .BPS.",
                 style = PixelTypography.LabelBold.copy(fontSize = 11.sp),
                 color = Color(0xFFD0D0DC),
                 maxLines = 5
@@ -364,6 +475,7 @@ private fun EmptyLibraryPrompt(
                         .clip(RoundedCornerShape(8.dp))
                         .background(SnesPalette.PlayGreenMain)
                         .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                        .focusable()
                         .clickable(onClick = onAutoScan),
                     contentAlignment = Alignment.Center
                 ) {
@@ -376,6 +488,7 @@ private fun EmptyLibraryPrompt(
                         .clip(RoundedCornerShape(8.dp))
                         .background(SnesPalette.LoadBlueMain)
                         .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                        .focusable()
                         .clickable(onClick = onSelectFolder),
                     contentAlignment = Alignment.Center
                 ) {

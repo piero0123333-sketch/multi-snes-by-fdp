@@ -25,6 +25,7 @@ import com.fdp.multisnes.ui.dialogs.GameLaunchDialog
 import com.fdp.multisnes.ui.dialogs.HerramientasDialog
 import com.fdp.multisnes.ui.dialogs.KeyMappingDialog
 import com.fdp.multisnes.ui.dialogs.MacroConfigDialog
+import com.fdp.multisnes.ui.dialogs.PatchRomPickerDialog
 import com.fdp.multisnes.ui.dialogs.SaveSlotPickerDialog
 import com.fdp.multisnes.ui.screens.CatalogScreen
 import com.fdp.multisnes.ui.screens.EmulatorScreen
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MultiSnesViewModel by viewModels()
     private var gamepadDigitalMask = 0
     private var gamepadAxisMask = 0
+    private var menuNavLastDpadKey = 0
 
     // Listener de acciones de sistema para mando externo (Guardar, Cargar último, Rewind y Fast-Forward)
     private val systemActionListener = object : MacroEngine.SystemActionListener {
@@ -61,6 +63,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // MÓDULO 3: Procesar Intent.ACTION_VIEW si la app fue abierta desde "Abrir con MULTI SNES BY FDP"
+        if (savedInstanceState == null) {
+            viewModel.handleExternalIntent(intent)
+        }
+
         setContent {
             MultiSnesTheme {
                 val route by viewModel.route.collectAsState()
@@ -80,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 val slotPickerGame by viewModel.slotPickerGame.collectAsState()
                 val slotPickerSlots by viewModel.slotPickerSlots.collectAsState()
                 val slotPickerLatestSlot by viewModel.slotPickerLatestSlot.collectAsState()
+                val pendingPatch by viewModel.pendingPatch.collectAsState()
 
                 val lobbyStatus by viewModel.lobbyStatus.collectAsState()
                 val onlineStatusText by viewModel.onlineStatusText.collectAsState()
@@ -87,7 +95,7 @@ class MainActivity : ComponentActivity() {
                 val coordinator by viewModel.activeCoordinator.collectAsState()
                 val telemetryState = coordinator?.telemetry?.collectAsState()
 
-                // Selector SAF de carpetas de ROMs (funciona en cualquier versión de Android sin restricciones)
+                // Selector SAF de carpetas de ROMs
                 val folderPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocumentTree()
                 ) { treeUri ->
@@ -119,7 +127,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Orientación automática: Horizontal pantalla completa en juego (Img 5), Libre/Vertical en menús (Img 1, 3, 4)
+                // Orientación automática: Horizontal pantalla completa en juego, Libre/Vertical en menús
                 LaunchedEffect(route) {
                     val controller = WindowCompat.getInsetsController(window, window.decorView)
                     if (route == AppScreenRoute.EMULATOR_GAMEPLAY) {
@@ -198,18 +206,22 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Modal JUGAR / CARGAR PROGRESO (Imagen 4 - Carga directa del último progreso guardado en 1 toque)
+                // MÓDULO 2: Modal de Selección de Juego con 3 Botones:
+                // 1. JUGAR (DESDE CERO)
+                // 2. CONTINUAR DONDE QUEDASTE (autosave_exit.state)
+                // 3. CARGAR PROGRESO (GUARDADOS) (Selector de 1..10 slots manuales)
                 selectedLaunchGame?.let { chosenGame ->
                     GameLaunchDialog(
                         game = chosenGame,
                         onDismiss = viewModel::dismissLaunchDialog,
-                        onPlayNormal = { viewModel.launchSinglePlayer(it, loadSavedProgress = false) },
-                        onLoadProgress = { viewModel.launchSinglePlayer(it, loadSavedProgress = true) },
+                        onPlayFromScratch = { viewModel.launchSinglePlayer(it, loadSavedProgress = false) },
+                        onContinueWhereLeftOff = viewModel::launchContinueWhereLeftOff,
+                        onOpenManualSavesPicker = viewModel::openSaveSlotPickerFromCatalog,
                         onToggleCompletedStar = viewModel::toggleCompletedStar
                     )
                 }
 
-                // Modal Selector de los 10 Estados Guardados (TAREA 2: desde "CARGAR R." o "CARGAR PROGRESO")
+                // Modal Selector de los 10 Estados Guardados manualmente
                 slotPickerGame?.let { targetGame ->
                     SaveSlotPickerDialog(
                         gameTitle = targetGame.title,
@@ -220,7 +232,17 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Modal HERRAMIENTAS (Imagen 2)
+                // MÓDULO 3: Modal Selector de ROM cuando el usuario abre un parche (.ips o .bps) con "Abrir con..."
+                pendingPatch?.let { patchPayload ->
+                    PatchRomPickerDialog(
+                        patchPayload = patchPayload,
+                        games = games,
+                        onSelectBaseRom = viewModel::applyPendingPatchToRom,
+                        onDismiss = viewModel::dismissPendingPatch
+                    )
+                }
+
+                // Modal HERRAMIENTAS
                 if (showHerramientas) {
                     HerramientasDialog(
                         settings = settings,
@@ -245,7 +267,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Sub-modal MAPEAR BOTONES (SNES Base + Acciones de Sistema + Macros M1..M4)
+                // Sub-modal MAPEAR BOTONES
                 if (showKeyMapper) {
                     KeyMappingDialog(
                         currentKeyMap = settings.hardwareKeyMap,
@@ -255,7 +277,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Sub-modal CONFIGURAR MACROS (Turbo / Auto-Hold M1..M4)
+                // Sub-modal CONFIGURAR MACROS
                 if (showMacroConfig) {
                     MacroConfigDialog(
                         macroSlots = settings.macroSlots,
@@ -267,7 +289,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // --- Auto-guardado inmediato al minimizar, salir o cerrar la app desde multitarea ---
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // MÓDULO 3: Procesar nuevo Intent.ACTION_VIEW si la app ya estaba en memoria (launchMode="singleTask")
+        viewModel.handleExternalIntent(intent)
+    }
+
+    // --- MÓDULO 2: Autoguardado Invisible al Salir (autosave_exit.state) en onPause() y onStop() ---
 
     override fun onPause() {
         viewModel.autoSaveProgressIfInGame()
@@ -297,7 +326,6 @@ class MainActivity : ComponentActivity() {
 
             if (isDown || isUp) {
                 val app = application as MultiSnesApp
-                // 1. Verificar si la tecla física está asignada a Acciones de Sistema (Guardar, Cargar Rápido, Rewind, Turbo) o Macros (M1..M4)
                 val sysOrMacroTriggered = app.macroEngine.handleHardwareKeyForSystemAndMacros(
                     code,
                     isDown,
@@ -305,7 +333,6 @@ class MainActivity : ComponentActivity() {
                     systemActionListener
                 )
 
-                // 2. Verificar si la tecla física está asignada a un botón base de SNES (A, B, X, Y, L, R, etc.)
                 var matchedBit = 0
                 for (action in SnesButtons.Action.entries) {
                     if (cfg.hardwareKeyMap[action.name] == code) {
@@ -333,31 +360,49 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
         val cfg = viewModel.settings.value
-        if (viewModel.route.value == AppScreenRoute.EMULATOR_GAMEPLAY &&
-            cfg.externalControllerEnabled &&
-            MacroEngine.isGamepadOrJoystick(ev)
-        ) {
-            val app = application as MultiSnesApp
+        if (MacroEngine.isGamepadOrJoystick(ev)) {
             val x = ev.getAxisValue(MotionEvent.AXIS_HAT_X).takeIf { it != 0f }
                 ?: ev.getAxisValue(MotionEvent.AXIS_X)
             val y = ev.getAxisValue(MotionEvent.AXIS_HAT_Y).takeIf { it != 0f }
                 ?: ev.getAxisValue(MotionEvent.AXIS_Y)
 
-            var axisBits = 0
-            if (x < -0.45f) axisBits = axisBits or SnesButtons.LEFT
-            if (x > 0.45f) axisBits = axisBits or SnesButtons.RIGHT
-            if (y < -0.45f) axisBits = axisBits or SnesButtons.UP
-            if (y > 0.45f) axisBits = axisBits or SnesButtons.DOWN
+            if (viewModel.route.value == AppScreenRoute.EMULATOR_GAMEPLAY && cfg.externalControllerEnabled) {
+                val app = application as MultiSnesApp
+                var axisBits = 0
+                if (x < -0.45f) axisBits = axisBits or SnesButtons.LEFT
+                if (x > 0.45f) axisBits = axisBits or SnesButtons.RIGHT
+                if (y < -0.45f) axisBits = axisBits or SnesButtons.UP
+                if (y > 0.45f) axisBits = axisBits or SnesButtons.DOWN
 
-            // Gatillos analógicos L2 / R2 mapeados a botones SNES, Acciones de Sistema (Rewind/Guardar/Cargar/Turbo) o Macros M1..M4
-            val triggerBits = app.macroEngine.extractTriggerButtonsMask(
-                ev,
-                cfg.hardwareKeyMap,
-                systemActionListener
-            )
-            gamepadAxisMask = axisBits or triggerBits
-            viewModel.onHardwareMaskUpdated(gamepadDigitalMask or gamepadAxisMask)
-            return true
+                val triggerBits = app.macroEngine.extractTriggerButtonsMask(
+                    ev,
+                    cfg.hardwareKeyMap,
+                    systemActionListener
+                )
+                gamepadAxisMask = axisBits or triggerBits
+                viewModel.onHardwareMaskUpdated(gamepadDigitalMask or gamepadAxisMask)
+                return true
+            } else if (viewModel.route.value != AppScreenRoute.EMULATOR_GAMEPLAY) {
+                // MÓDULO 1: Convertir movimiento de Joystick / D-Pad HAT en eventos D-Pad de navegación
+                // para mover el foco (Focus State) fluidamente entre tarjetas de la biblioteca
+                val nextDpadKey = when {
+                    x < -0.55f -> KeyEvent.KEYCODE_DPAD_LEFT
+                    x > 0.55f -> KeyEvent.KEYCODE_DPAD_RIGHT
+                    y < -0.55f -> KeyEvent.KEYCODE_DPAD_UP
+                    y > 0.55f -> KeyEvent.KEYCODE_DPAD_DOWN
+                    else -> 0
+                }
+                if (nextDpadKey != menuNavLastDpadKey) {
+                    if (menuNavLastDpadKey != 0) {
+                        super.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, menuNavLastDpadKey))
+                    }
+                    menuNavLastDpadKey = nextDpadKey
+                    if (nextDpadKey != 0) {
+                        super.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, nextDpadKey))
+                        return true
+                    }
+                }
+            }
         }
         return super.dispatchGenericMotionEvent(ev)
     }

@@ -47,12 +47,94 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
             android:exported="true"
-            android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize">
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+            <!-- MÓDULO 3: "Abrir con MULTI SNES BY FDP" desde Archivos Externos (.sfc, .smc, .zip, .fig, .swc, .ips, .bps) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+
+                <!-- Extensiones en minúsculas (pathSuffix API 31+ y pathPattern con soporte de puntos intermedios) -->
+                <data android:pathSuffix=".sfc" />
+                <data android:pathSuffix=".smc" />
+                <data android:pathSuffix=".zip" />
+                <data android:pathSuffix=".fig" />
+                <data android:pathSuffix=".swc" />
+                <data android:pathSuffix=".ips" />
+                <data android:pathSuffix=".bps" />
+
+                <!-- Extensiones en MAYÚSCULAS -->
+                <data android:pathSuffix=".SFC" />
+                <data android:pathSuffix=".SMC" />
+                <data android:pathSuffix=".ZIP" />
+                <data android:pathSuffix=".FIG" />
+                <data android:pathSuffix=".SWC" />
+                <data android:pathSuffix=".IPS" />
+                <data android:pathSuffix=".BPS" />
+
+                <!-- Patrones pathPattern clásicos (minúsculas) -->
+                <data android:pathPattern=".*\\.sfc" />
+                <data android:pathPattern=".*\\..*\\.sfc" />
+                <data android:pathPattern=".*\\..*\\..*\\.sfc" />
+                <data android:pathPattern=".*\\.smc" />
+                <data android:pathPattern=".*\\..*\\.smc" />
+                <data android:pathPattern=".*\\..*\\..*\\.smc" />
+                <data android:pathPattern=".*\\.zip" />
+                <data android:pathPattern=".*\\..*\\.zip" />
+                <data android:pathPattern=".*\\..*\\..*\\.zip" />
+                <data android:pathPattern=".*\\.fig" />
+                <data android:pathPattern=".*\\..*\\.fig" />
+                <data android:pathPattern=".*\\.swc" />
+                <data android:pathPattern=".*\\..*\\.swc" />
+                <data android:pathPattern=".*\\.ips" />
+                <data android:pathPattern=".*\\..*\\.ips" />
+                <data android:pathPattern=".*\\..*\\..*\\.ips" />
+                <data android:pathPattern=".*\\.bps" />
+                <data android:pathPattern=".*\\..*\\.bps" />
+                <data android:pathPattern=".*\\..*\\..*\\.bps" />
+
+                <!-- Patrones pathPattern clásicos (MAYÚSCULAS) -->
+                <data android:pathPattern=".*\\.SFC" />
+                <data android:pathPattern=".*\\..*\\.SFC" />
+                <data android:pathPattern=".*\\.SMC" />
+                <data android:pathPattern=".*\\..*\\.SMC" />
+                <data android:pathPattern=".*\\.ZIP" />
+                <data android:pathPattern=".*\\..*\\.ZIP" />
+                <data android:pathPattern=".*\\.FIG" />
+                <data android:pathPattern=".*\\..*\\.FIG" />
+                <data android:pathPattern=".*\\.SWC" />
+                <data android:pathPattern=".*\\..*\\.SWC" />
+                <data android:pathPattern=".*\\.IPS" />
+                <data android:pathPattern=".*\\..*\\.IPS" />
+                <data android:pathPattern=".*\\.BPS" />
+                <data android:pathPattern=".*\\..*\\.BPS" />
+            </intent-filter>
+
+            <!-- Soporte adicional para proveedores content:// con URIs opacos (WhatsApp, Descargas, etc.) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/vnd.nintendo.snes.rom" />
+                <data android:mimeType="application/x-snes-rom" />
             </intent-filter>
         </activity>
     </application>

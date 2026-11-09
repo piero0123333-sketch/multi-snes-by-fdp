@@ -15,7 +15,8 @@ import kotlin.math.min
 
 /**
  * Gestiona el catálogo de ROMs, el Sistema de Guardado Rotativo de 10 Slots (SaveStateManager),
- * la memoria de batería (.srm) y el cálculo de progreso (%) + estrella (⭐).
+ * el Autoguardado Invisible al Salir (autosave_exit.state), la memoria de batería (.srm)
+ * y el cálculo de progreso (%) + estrella (⭐).
  */
 class GameLibraryRepository(private val context: Context) {
 
@@ -40,7 +41,7 @@ class GameLibraryRepository(private val context: Context) {
         runCatching {
             val raw = catalogFile.readText()
             val stored = json.decodeFromString<List<RomGame>>(raw)
-            _games.value = stored.map { syncSaveStateFlag(it) }
+            _games.value = stored.map { syncSaveStateFlags(it) }
         }
     }
 
@@ -50,7 +51,7 @@ class GameLibraryRepository(private val context: Context) {
         for (fresh in scannedGames) {
             val existing = currentByCrc[fresh.crc32Hex]
             if (existing != null) {
-                currentByCrc[fresh.crc32Hex] = syncSaveStateFlag(
+                currentByCrc[fresh.crc32Hex] = syncSaveStateFlags(
                     existing.copy(
                         sourcePathOrUri = fresh.sourcePathOrUri,
                         zipEntryName = fresh.zipEntryName,
@@ -58,7 +59,7 @@ class GameLibraryRepository(private val context: Context) {
                     )
                 )
             } else {
-                currentByCrc[fresh.crc32Hex] = syncSaveStateFlag(fresh)
+                currentByCrc[fresh.crc32Hex] = syncSaveStateFlags(fresh)
             }
         }
 
@@ -67,21 +68,53 @@ class GameLibraryRepository(private val context: Context) {
         persistCatalog(merged)
     }
 
+    /**
+     * Inserta o actualiza inmediatamente un juego individual (ej. al abrir una ROM o parche desde "Abrir con...").
+     */
+    @Synchronized
+    fun upsertSingleGameSync(game: RomGame): RomGame {
+        val synced = syncSaveStateFlags(game)
+        val currentByCrc = _games.value.associateBy { it.crc32Hex }.toMutableMap()
+        val existing = currentByCrc[synced.crc32Hex]
+        val finalGame = if (existing != null) {
+            syncSaveStateFlags(
+                existing.copy(
+                    title = synced.title,
+                    fullInternalTitle = synced.fullInternalTitle,
+                    sourcePathOrUri = synced.sourcePathOrUri,
+                    zipEntryName = synced.zipEntryName,
+                    coverImagePath = synced.coverImagePath ?: existing.coverImagePath
+                )
+            )
+        } else {
+            synced
+        }
+        currentByCrc[finalGame.crc32Hex] = finalGame
+        val merged = currentByCrc.values.sortedBy { it.title }
+        _games.value = merged
+        persistCatalog(merged)
+        return finalGame
+    }
+
     suspend fun recordSessionPlaytime(crc32Hex: String, elapsedSeconds: Long) = withContext(Dispatchers.IO) {
         if (elapsedSeconds <= 0) return@withContext
         updateGame(crc32Hex) { game ->
             val updatedSeconds = game.totalPlayTimeSeconds + elapsedSeconds
+            val hasManual = hasManualSaveSlots(crc32Hex)
+            val hasAuto = hasAutoExitSave(crc32Hex)
             val computedPct = if (game.isMarkedCompleted) {
                 100
             } else {
                 val baseFromTime = ((updatedSeconds * 100L) / (5L * 3600L)).toInt()
-                val milestoneBonus = if (hasQuickSaveFile(crc32Hex)) 5 else 0
+                val milestoneBonus = if (hasManual || hasAuto) 5 else 0
                 min(99, maxOf(game.progressPercent, baseFromTime + milestoneBonus, 1))
             }
             game.copy(
                 totalPlayTimeSeconds = updatedSeconds,
                 progressPercent = computedPct,
-                hasSaveState = hasQuickSaveFile(crc32Hex)
+                hasSaveState = hasManual,
+                hasAutoSaveExit = hasAuto,
+                autoSaveExitDate = saveStateManager.getAutoExitStateInfo(crc32Hex)?.formattedDate
             )
         }
     }
@@ -97,8 +130,7 @@ class GameLibraryRepository(private val context: Context) {
     }
 
     /**
-     * TAREA 2: Guarda en la cola rotativa FIFO de 10 slots (slot_1.state .. slot_10.state + miniatura .png)
-     * y devuelve la información del slot escrito (o null en caso de error).
+     * Guarda un estado MANUAL en la cola rotativa FIFO de 10 slots (slot_1.state .. slot_10.state + miniatura .png).
      */
     suspend fun saveRotatingState(
         crc32Hex: String,
@@ -122,7 +154,7 @@ class GameLibraryRepository(private val context: Context) {
         saveRotatingState(crc32Hex, stateBytes, null) != null
 
     /**
-     * TAREA 2 (Modo 1 - Carga Directa): Carga inmediatamente el último estado guardado (latest_slot).
+     * Carga directa del último estado guardado manual (latest_slot).
      */
     suspend fun loadLatestQuickState(crc32Hex: String): Pair<SaveStateManager.SaveSlotInfo, ByteArray>? =
         withContext(Dispatchers.IO) {
@@ -131,10 +163,18 @@ class GameLibraryRepository(private val context: Context) {
 
     suspend fun loadQuickState(crc32Hex: String): ByteArray? = withContext(Dispatchers.IO) {
         saveStateManager.loadLatestState(crc32Hex)?.second
+            ?: saveStateManager.loadAutoExitStateBytes(crc32Hex)
     }
 
     /**
-     * TAREA 2 (Modo 2 - Carga por Selector): Carga un slot específico (1..10) elegido por el usuario.
+     * MÓDULO 2: Carga directamente el archivo reservado autosave_exit.state ("CONTINUAR DONDE QUEDASTE").
+     */
+    suspend fun loadAutoExitState(crc32Hex: String): ByteArray? = withContext(Dispatchers.IO) {
+        saveStateManager.loadAutoExitStateBytes(crc32Hex)
+    }
+
+    /**
+     * Carga un slot manual específico (1..10) elegido por el usuario en el selector.
      */
     suspend fun loadQuickStateSlot(crc32Hex: String, slotNumber: Int): ByteArray? =
         withContext(Dispatchers.IO) {
@@ -148,9 +188,9 @@ class GameLibraryRepository(private val context: Context) {
         saveStateManager.getMetadata(crc32Hex).latestSlotNumber
 
     /**
-     * Guardado automático síncrono al salir del juego o cerrar/minimizar la aplicación,
-     * garantizando que tanto el Save State como la SRAM (.srm) y el porcentaje de progreso
-     * queden persistidos en disco de inmediato para acceso rápido al volver a entrar.
+     * MÓDULO 2: Autoguardado Invisible al Salir (onPause, onStop y Salir al menú).
+     * Guarda automáticamente en autosave_exit.state (totalmente separado de las 10 ranuras manuales
+     * para no sobrescribirlas jamás) + SRAM (.srm) + porcentaje de progreso.
      */
     @Synchronized
     fun saveAutoProgressSync(
@@ -163,25 +203,29 @@ class GameLibraryRepository(private val context: Context) {
         if (sramBytes != null && sramBytes.isNotEmpty()) {
             runCatching { sramFile(crc32Hex).writeBytes(sramBytes) }
         }
-        val savedSlot = if (stateBytes != null && stateBytes.isNotEmpty()) {
-            saveStateManager.saveStateRotating(crc32Hex, stateBytes, screenshot)
+        val autoExitInfo = if (stateBytes != null && stateBytes.isNotEmpty()) {
+            saveStateManager.saveAutoExitState(crc32Hex, stateBytes, screenshot)
         } else {
-            null
+            saveStateManager.getAutoExitStateInfo(crc32Hex)
         }
         updateGame(crc32Hex) { game ->
             val updatedSeconds = game.totalPlayTimeSeconds + elapsedSeconds.coerceAtLeast(0L)
-            val hasSaveNow = savedSlot != null || hasQuickSaveFile(crc32Hex)
+            val hasManual = hasManualSaveSlots(crc32Hex)
+            val hasAuto = autoExitInfo != null || hasAutoExitSave(crc32Hex)
+            val hasAnySave = hasManual || hasAuto
             val computedPct = if (game.isMarkedCompleted) {
                 100
             } else {
                 val baseFromTime = ((updatedSeconds * 100L) / (5L * 3600L)).toInt()
-                val milestoneBonus = if (hasSaveNow) 5 else 0
-                min(99, maxOf(game.progressPercent, baseFromTime + milestoneBonus, if (hasSaveNow) 5 else 1))
+                val milestoneBonus = if (hasAnySave) 5 else 0
+                min(99, maxOf(game.progressPercent, baseFromTime + milestoneBonus, if (hasAnySave) 5 else 1))
             }
             game.copy(
                 totalPlayTimeSeconds = updatedSeconds,
                 progressPercent = computedPct,
-                hasSaveState = hasSaveNow
+                hasSaveState = hasManual,
+                hasAutoSaveExit = hasAuto,
+                autoSaveExitDate = autoExitInfo?.formattedDate ?: game.autoSaveExitDate
             )
         }
     }
@@ -208,11 +252,21 @@ class GameLibraryRepository(private val context: Context) {
         }
     }
 
-    private fun hasQuickSaveFile(crc32Hex: String): Boolean =
+    private fun hasManualSaveSlots(crc32Hex: String): Boolean =
         saveStateManager.hasAnySavedState(crc32Hex)
 
-    private fun syncSaveStateFlag(game: RomGame): RomGame =
-        game.copy(hasSaveState = hasQuickSaveFile(game.crc32Hex))
+    private fun hasAutoExitSave(crc32Hex: String): Boolean =
+        saveStateManager.hasAutoExitState(crc32Hex)
+
+    private fun syncSaveStateFlags(game: RomGame): RomGame {
+        val hasManual = hasManualSaveSlots(game.crc32Hex)
+        val autoInfo = saveStateManager.getAutoExitStateInfo(game.crc32Hex)
+        return game.copy(
+            hasSaveState = hasManual,
+            hasAutoSaveExit = autoInfo != null,
+            autoSaveExitDate = autoInfo?.formattedDate
+        )
+    }
 
     private fun sramFile(crc32Hex: String): File =
         File(sramDir, "${crc32Hex.uppercase()}.srm")

@@ -1,6 +1,7 @@
 package com.fdp.multisnes.ui.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -13,6 +14,7 @@ import com.fdp.multisnes.data.model.RomGame
 import com.fdp.multisnes.data.model.ScreenScaleMode
 import com.fdp.multisnes.data.model.TouchControlsLayout
 import com.fdp.multisnes.data.repository.SaveStateManager
+import com.fdp.multisnes.data.rom.RomIntentHandler
 import com.fdp.multisnes.data.rom.SnesRomHeaderParser
 import com.fdp.multisnes.netplay.HotspotRollbackCoordinator
 import com.fdp.multisnes.ui.screens.HotspotLobbyStatus
@@ -80,6 +82,10 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _slotPickerLatestSlot = MutableStateFlow(0)
     val slotPickerLatestSlot: StateFlow<Int> = _slotPickerLatestSlot.asStateFlow()
+
+    // MÓDULO 3: Parche pendiente (.ips / .bps) abierto desde "Abrir con MULTI SNES BY FDP"
+    private val _pendingPatch = MutableStateFlow<RomIntentHandler.PendingPatchPayload?>(null)
+    val pendingPatch: StateFlow<RomIntentHandler.PendingPatchPayload?> = _pendingPatch.asStateFlow()
 
     private val _statusBanner = MutableStateFlow<String?>(null)
     val statusBanner: StateFlow<String?> = _statusBanner.asStateFlow()
@@ -169,9 +175,14 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- Arranque de Partida Individual (JUGAR vs CARGAR PROGRESO de Imagen 4) ---
+    // --- Arranque de Partida Individual (MÓDULO 2: JUGAR DESDE CERO / CONTINUAR DONDE QUEDASTE / CARGAR GUARDADOS) ---
 
-    fun launchSinglePlayer(game: RomGame, loadSavedProgress: Boolean, specificSlotNumber: Int? = null) {
+    fun launchSinglePlayer(
+        game: RomGame,
+        loadSavedProgress: Boolean,
+        specificSlotNumber: Int? = null,
+        loadAutoSaveExit: Boolean = false
+    ) {
         _selectedLaunchGame.value = null
         _slotPickerGame.value = null
         viewModelScope.launch {
@@ -185,6 +196,7 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
 
             val sram = app.libraryRepository.loadSram(game.crc32Hex)
             val quickState = when {
+                loadAutoSaveExit -> app.libraryRepository.loadAutoExitState(game.crc32Hex)
                 specificSlotNumber != null -> app.libraryRepository.loadQuickStateSlot(game.crc32Hex, specificSlotNumber)
                 loadSavedProgress -> app.libraryRepository.loadQuickState(game.crc32Hex)
                 else -> null
@@ -209,13 +221,95 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
                 _isRewinding.value = false
                 sessionStartEpochMs = System.currentTimeMillis()
                 _route.value = AppScreenRoute.EMULATOR_GAMEPLAY
-                if (specificSlotNumber != null && quickState != null) {
-                    showTransientBanner("Slot #$specificSlotNumber cargado (${game.progressPercent}%)")
-                } else if (loadSavedProgress && quickState != null) {
-                    showTransientBanner("Progreso cargado (${game.progressPercent}%)")
+                when {
+                    loadAutoSaveExit && quickState != null -> {
+                        showTransientBanner("Continuando donde te quedaste (${game.progressPercent}%)")
+                    }
+                    specificSlotNumber != null && quickState != null -> {
+                        showTransientBanner("Slot #$specificSlotNumber cargado (${game.progressPercent}%)")
+                    }
+                    loadSavedProgress && quickState != null -> {
+                        showTransientBanner("Progreso cargado (${game.progressPercent}%)")
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * MÓDULO 2: "CONTINUAR DONDE QUEDASTE" carga directamente el archivo autosave_exit.state.
+     */
+    fun launchContinueWhereLeftOff(game: RomGame) {
+        launchSinglePlayer(
+            game = game,
+            loadSavedProgress = false,
+            specificSlotNumber = null,
+            loadAutoSaveExit = true
+        )
+    }
+
+    /**
+     * MÓDULO 3: Procesamiento de Intent.ACTION_VIEW ("Abrir con MULTI SNES BY FDP").
+     * - Si es ROM (.sfc, .smc, .zip, .fig, .swc): copia al directorio local de la app e inicia el juego de inmediato.
+     * - Si es Parche (.ips, .bps): abre el selector para elegir a cuál ROM de la biblioteca aplicarle el parche.
+     */
+    fun handleExternalIntent(intent: Intent?) {
+        val uri = RomIntentHandler.extractUriFromIntent(intent) ?: return
+        intent?.data = null
+        viewModelScope.launch {
+            if (_route.value == AppScreenRoute.EMULATOR_GAMEPLAY) {
+                exitGameToCatalog()
+            }
+            val result = withContext(Dispatchers.IO) {
+                RomIntentHandler.handleIncomingUri(app, uri, app.libraryRepository)
+            }
+            when (result) {
+                is RomIntentHandler.IntentResult.RomImportedAndReady -> {
+                    showTransientBanner("ROM importada: ${result.game.title}")
+                    launchSinglePlayer(result.game, loadSavedProgress = false)
+                }
+                is RomIntentHandler.IntentResult.PatchReadyToSelectRom -> {
+                    _route.value = AppScreenRoute.CATALOG
+                    if (games.value.isEmpty()) {
+                        val found = app.romScanner.scanAllSources(settings.value.safRomTreeUris)
+                        app.libraryRepository.mergeDiscoveredGames(found)
+                    }
+                    _pendingPatch.value = result.patch
+                }
+                is RomIntentHandler.IntentResult.Error -> {
+                    showTransientBanner(result.message)
+                }
+            }
+        }
+    }
+
+    fun applyPendingPatchToRom(baseGame: RomGame) {
+        val patch = _pendingPatch.value ?: return
+        _pendingPatch.value = null
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                RomIntentHandler.applyPatchToGameAndImport(
+                    context = app,
+                    baseGame = baseGame,
+                    patchPayload = patch,
+                    libraryRepository = app.libraryRepository
+                )
+            }
+            when (result) {
+                is RomIntentHandler.IntentResult.RomImportedAndReady -> {
+                    showTransientBanner("Parche aplicado: ${result.game.title}")
+                    launchSinglePlayer(result.game, loadSavedProgress = false)
+                }
+                is RomIntentHandler.IntentResult.Error -> {
+                    showTransientBanner(result.message)
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun dismissPendingPatch() {
+        _pendingPatch.value = null
     }
 
     // --- Modo ONLINE Hotspot 2 Jugadores (<10 cm, Cero Lag, Rollback UDP) ---
@@ -500,16 +594,12 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * TAREA 2 (Modo 2 - Carga con Selector desde el Catálogo -> "CARGAR PROGRESO"):
-     * Despliega el modal con los hasta 10 estados guardados para elegir cuál iniciar.
+     * MÓDULO 2 ("CARGAR PROGRESO (GUARDADOS)"):
+     * Abre el selector con la lista de los hasta 10 estados guardados manualmente por el usuario.
      */
     fun openSaveSlotPickerFromCatalog(game: RomGame) {
         _selectedLaunchGame.value = null
         val slots = app.libraryRepository.listSaveSlotsNewestFirst(game.crc32Hex)
-        if (slots.size <= 1) {
-            launchSinglePlayer(game, loadSavedProgress = true)
-            return
-        }
         _slotPickerSlots.value = slots
         _slotPickerLatestSlot.value = app.libraryRepository.getLatestSlotNumber(game.crc32Hex)
         _slotPickerGame.value = game

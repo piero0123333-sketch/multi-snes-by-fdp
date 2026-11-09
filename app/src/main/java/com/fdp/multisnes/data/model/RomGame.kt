@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * Representa un juego en el catálogo de MULTI SNES BY FDP.
- * Soporta cualquier ROM clásica (.sfc, .smc, .swc, .fig, .zip) sin restricciones.
+ * Soporta cualquier ROM clásica (.sfc, .smc, .swc, .fig, .zip) y parches (.ips, .bps).
  */
 @Serializable
 data class RomGame(
@@ -18,6 +18,8 @@ data class RomGame(
     val isPalRegion: Boolean = false,
     val progressPercent: Int = 0,
     val hasSaveState: Boolean = false,
+    val hasAutoSaveExit: Boolean = false,
+    val autoSaveExitDate: String? = null,
     val isMarkedCompleted: Boolean = false,
     val totalPlayTimeSeconds: Long = 0L,
     val coverImagePath: String? = null,

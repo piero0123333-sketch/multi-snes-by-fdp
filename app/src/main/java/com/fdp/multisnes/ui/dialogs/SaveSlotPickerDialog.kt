@@ -1,10 +1,12 @@
 package com.fdp.multisnes.ui.dialogs
 
 import android.graphics.BitmapFactory
+import android.view.KeyEvent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,13 +22,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -164,15 +171,37 @@ private fun SaveSlotRowItem(
         }
     }
 
-    val borderCol = if (isLatest) SnesPalette.OnlineNeonGreen else SnesPalette.FramePurple
-    val bgCol = if (isLatest) Color(0xFF283C34) else Color(0xFF2C2C38)
+    var isFocused by remember { mutableStateOf(false) }
+    val borderCol = when {
+        isFocused -> Color(0xFF00E5FF)
+        isLatest -> SnesPalette.OnlineNeonGreen
+        else -> SnesPalette.FramePurple
+    }
+    val bgCol = when {
+        isFocused -> Color(0xFF344858)
+        isLatest -> Color(0xFF283C34)
+        else -> Color(0xFF2C2C38)
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .onKeyEvent { ev ->
+                val nk = ev.nativeKeyEvent
+                if (nk.action == KeyEvent.ACTION_DOWN &&
+                    (nk.keyCode == KeyEvent.KEYCODE_BUTTON_A ||
+                        nk.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        nk.keyCode == KeyEvent.KEYCODE_ENTER)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(bgCol)
-            .border(2.dp, borderCol, RoundedCornerShape(8.dp))
+            .border(if (isFocused) 3.dp else 2.dp, borderCol, RoundedCornerShape(8.dp))
+            .focusable()
             .clickable(onClick = onClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,

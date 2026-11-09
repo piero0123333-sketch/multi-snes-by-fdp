@@ -12,13 +12,18 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * TAREA 2: Gestor de Guardado Rotativo (Cola Circular FIFO de Máximo 10 Slots por juego)
- * y Doble Modo de Carga (Carga Directa del último estado vs Selector Modal de los 10 slots).
+ * Gestor de Guardados por juego:
+ * - Cola Circular FIFO de Máximo 10 Slots manuales (slot_1.state a slot_10.state).
+ * - Autoguardado Invisible al Salir (autosave_exit.state + autosave_exit.png + autosave_exit.json)
+ *   totalmente separado de las 10 ranuras manuales para no sobrescribirlas (MÓDULO 2).
  */
 class SaveStateManager(private val context: Context) {
 
     companion object {
         const val MAX_SLOTS_PER_GAME = 10
+        const val AUTO_SAVE_EXIT_STATE_FILE = "autosave_exit.state"
+        const val AUTO_SAVE_EXIT_SCREENSHOT_FILE = "autosave_exit.png"
+        const val AUTO_SAVE_EXIT_META_FILE = "autosave_exit.json"
     }
 
     @Serializable
@@ -27,6 +32,14 @@ class SaveStateManager(private val context: Context) {
         val timestampEpochMs: Long,
         val formattedDate: String,
         val stateFileName: String,
+        val screenshotPath: String? = null
+    )
+
+    @Serializable
+    data class AutoSaveExitInfo(
+        val timestampEpochMs: Long,
+        val formattedDate: String,
+        val stateFileName: String = AUTO_SAVE_EXIT_STATE_FILE,
         val screenshotPath: String? = null
     )
 
@@ -52,6 +65,9 @@ class SaveStateManager(private val context: Context) {
     }
 
     private fun metadataFile(gameKey: String): File = File(gameDir(gameKey), "metadata.json")
+    private fun autoExitStateFile(gameKey: String): File = File(gameDir(gameKey), AUTO_SAVE_EXIT_STATE_FILE)
+    private fun autoExitScreenshotFile(gameKey: String): File = File(gameDir(gameKey), AUTO_SAVE_EXIT_SCREENSHOT_FILE)
+    private fun autoExitMetaFile(gameKey: String): File = File(gameDir(gameKey), AUTO_SAVE_EXIT_META_FILE)
 
     @Synchronized
     fun getMetadata(gameKey: String): GameSlotsMetadata {
@@ -101,7 +117,7 @@ class SaveStateManager(private val context: Context) {
     }
 
     /**
-     * Guarda un nuevo estado en la cola circular de 10 ranuras:
+     * Guarda un nuevo estado MANUAL en la cola circular de 10 ranuras:
      * - Si hay menos de 10 guardados, ocupa la primera ranura libre (1..10).
      * - Si ya existen los 10 guardados, sobrescribe automáticamente el MÁS ANTIGUO (rotación FIFO)
      *   y marca la ranura recién escrita como latest_slot (latestSlotNumber).
@@ -161,7 +177,87 @@ class SaveStateManager(private val context: Context) {
     }
 
     /**
-     * Devuelve la lista de hasta 10 ranuras guardadas para este juego,
+     * MÓDULO 2: Autoguardado Invisible al Salir (autosave_exit.state).
+     * Se guarda en un archivo reservado por juego totalmente independiente de las 10 ranuras manuales.
+     */
+    @Synchronized
+    fun saveAutoExitState(
+        gameKey: String,
+        stateBytes: ByteArray,
+        screenshot: Bitmap? = null
+    ): AutoSaveExitInfo? {
+        if (stateBytes.isEmpty()) return null
+        return runCatching {
+            val stateFile = autoExitStateFile(gameKey)
+            stateFile.writeBytes(stateBytes)
+
+            var screenshotPath: String? = null
+            if (screenshot != null) {
+                val pngFile = autoExitScreenshotFile(gameKey)
+                runCatching {
+                    FileOutputStream(pngFile).use { out ->
+                        screenshot.compress(Bitmap.CompressFormat.PNG, 90, out)
+                        out.flush()
+                    }
+                    screenshotPath = pngFile.absolutePath
+                }
+            }
+
+            val now = System.currentTimeMillis()
+            val info = AutoSaveExitInfo(
+                timestampEpochMs = now,
+                formattedDate = formatTimestamp(now),
+                stateFileName = AUTO_SAVE_EXIT_STATE_FILE,
+                screenshotPath = screenshotPath
+            )
+            runCatching {
+                autoExitMetaFile(gameKey).writeText(json.encodeToString(info))
+            }
+            info
+        }.getOrNull()
+    }
+
+    /**
+     * Verifica si existe el archivo reservado autosave_exit.state para este juego.
+     */
+    @Synchronized
+    fun hasAutoExitState(gameKey: String): Boolean {
+        val file = autoExitStateFile(gameKey)
+        return file.exists() && file.length() > 0L
+    }
+
+    /**
+     * Carga los bytes de autosave_exit.state para la opción "CONTINUAR DONDE QUEDASTE".
+     */
+    @Synchronized
+    fun loadAutoExitStateBytes(gameKey: String): ByteArray? {
+        val file = autoExitStateFile(gameKey)
+        if (!file.exists() || file.length() <= 0L) return null
+        return runCatching { file.readBytes() }.getOrNull()
+    }
+
+    @Synchronized
+    fun getAutoExitStateInfo(gameKey: String): AutoSaveExitInfo? {
+        if (!hasAutoExitState(gameKey)) return null
+        val meta = autoExitMetaFile(gameKey)
+        if (meta.exists()) {
+            runCatching {
+                return json.decodeFromString<AutoSaveExitInfo>(meta.readText())
+            }
+        }
+        val stateFile = autoExitStateFile(gameKey)
+        val ts = stateFile.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis()
+        val png = autoExitScreenshotFile(gameKey).takeIf { it.exists() }?.absolutePath
+        return AutoSaveExitInfo(
+            timestampEpochMs = ts,
+            formattedDate = formatTimestamp(ts),
+            stateFileName = AUTO_SAVE_EXIT_STATE_FILE,
+            screenshotPath = png
+        )
+    }
+
+    /**
+     * Devuelve la lista de hasta 10 ranuras guardadas manualmente para este juego,
      * ordenadas siempre de la MÁS RECIENTE a la MÁS ANTIGUA.
      */
     @Synchronized
@@ -171,7 +267,7 @@ class SaveStateManager(private val context: Context) {
 
     /**
      * Modo 1 — Carga Directa (HUD in-game o botón físico del mando):
-     * Carga inmediatamente y sin preguntar el último estado guardado (latest_slot).
+     * Carga inmediatamente y sin preguntar el último estado guardado (latest_slot) o autosave_exit si no hay slot manual.
      */
     @Synchronized
     fun loadLatestState(gameKey: String): Pair<SaveSlotInfo, ByteArray>? {
@@ -185,7 +281,7 @@ class SaveStateManager(private val context: Context) {
     }
 
     /**
-     * Modo 2 — Carga de una ranura específica elegida desde el selector de 10 estados ("CARGAR R.").
+     * Modo 2 — Carga de una ranura específica elegida desde el selector de 10 estados ("CARGAR R." / "CARGAR PROGRESO").
      */
     @Synchronized
     fun loadSlotBytes(gameKey: String, slotNumber: Int): ByteArray? {

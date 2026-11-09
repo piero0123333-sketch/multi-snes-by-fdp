@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Estado enfocado o seleccionado con mando físico (D-Pad / Joystick):
+         Borde brillante de alto contraste (4dp cian #00E5FF con detalle/sombra amarilla #FFD600 estilo pixel-art) -->
+    <item android:state_focused="true">
+        <layer-list>
+            <!-- Sombra / Detalle exterior amarillo pixel-art (#FFD600) -->
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="10dp" />
+                    <stroke
+                        android:width="6dp"
+                        android:color="#FFD600" />
+                    <solid android:color="#282832" />
+                </shape>
+            </item>
+            <!-- Borde principal cian brillante de alto contraste (4dp, #00E5FF) -->
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <corners android:radius="8dp" />
+                    <stroke
+                        android:width="4dp"
+                        android:color="#00E5FF" />
+                    <gradient
+                        android:angle="270"
+                        android:centerColor="#7B7B86"
+                        android:endColor="#5C5C66"
+                        android:startColor="#93939E" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+
+    <item android:state_selected="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="10dp" />
+                    <stroke
+                        android:width="6dp"
+                        android:color="#FFD600" />
+                    <solid android:color="#282832" />
+                </shape>
+            </item>
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <corners android:radius="8dp" />
+                    <stroke
+                        android:width="4dp"
+                        android:color="#00E5FF" />
+                    <gradient
+                        android:angle="270"
+                        android:centerColor="#7B7B86"
+                        android:endColor="#5C5C66"
+                        android:startColor="#93939E" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+
+    <!-- Estado normal: Borde gris oscuro sutil (2dp, #3A3A3C) -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="10dp" />
+            <stroke
+                android:width="2dp"
+                android:color="#3A3A3C" />
+            <gradient
+                android:angle="270"
+                android:centerColor="#7B7B86"
+                android:endColor="#5C5C66"
+                android:startColor="#93939E" />
+        </shape>
+    </item>
+
+</selector>
