@@ -41,7 +41,13 @@ class SettingsRepository(context: Context) {
             EmulatorSettings()
         }
         val migratedLayout = hudLayoutManager.loadFromSharedPreferences(base.touchLayout)
-        return base.copy(touchLayout = migratedLayout)
+        val result = base.copy(touchLayout = migratedLayout)
+        if (migratedLayout != base.touchLayout) {
+            runCatching {
+                settingsFile.writeText(json.encodeToString(result))
+            }
+        }
+        return result
     }
 
     fun update(transform: (EmulatorSettings) -> EmulatorSettings) {
