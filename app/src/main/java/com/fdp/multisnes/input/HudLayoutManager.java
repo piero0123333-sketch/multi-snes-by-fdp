@@ -18,6 +18,7 @@ public final class HudLayoutManager {
     public static final String PREFS_NAME = "multisnes_hud_layout_prefs";
     private static final String KEY_MIGRATED_V2 = "migrated_individual_abxy_v2";
     private static final String KEY_MIGRATED_V3 = "migrated_individual_abxy_v3";
+    private static final String KEY_MIGRATED_V4 = "migrated_individual_abxy_v4";
 
     public static final float MIN_SCALE = 0.5f;
     public static final float MAX_SCALE = 2.0f;
@@ -103,15 +104,15 @@ public final class HudLayoutManager {
      * esquina inferior derecha, pero guardando X, Y, B y A como coordenadas 100% independientes.
      */
     public static TouchControlsLayout createDefaultDiamondLayout() {
-        final float diamondCenterX = 0.885f;
+        final float diamondCenterX = 0.840f;
         final float diamondCenterY = 0.690f;
         final float offsetX = 0.065f;
         final float offsetY = 0.135f;
 
         return new TouchControlsLayout(
                 0.055f, 0.58f, 1.0f, 0.75f, // D-PAD (pos X/Y normalizado)
-                0.045f, 0.36f, 1.0f, 0.75f, // Botón L
-                0.845f, 0.36f, 1.0f, 0.75f, // Botón R
+                0.050f, 0.36f, 1.0f, 0.75f, // Botón L
+                0.825f, 0.36f, 1.0f, 0.75f, // Botón R
                 0.380f, 0.89f, 1.0f, 0.75f, // Botón SELECT
                 0.520f, 0.89f, 1.0f, 0.75f, // Botón START
                 diamondCenterX, diamondCenterY - offsetY, 1.0f, 0.80f, // Button_X (Arriba)
@@ -120,14 +121,14 @@ public final class HudLayoutManager {
                 diamondCenterX + offsetX, diamondCenterY, 1.0f, 0.80f, // Button_A (Derecha)
                 0.20f, 0.36f, 1.0f, 0.85f, // Macro M1
                 0.28f, 0.36f, 1.0f, 0.85f, // Macro M2
-                0.70f, 0.36f, 1.0f, 0.85f, // Macro M3
-                0.78f, 0.36f, 1.0f, 0.85f  // Macro M4
+                0.68f, 0.36f, 1.0f, 0.85f, // Macro M3
+                0.76f, 0.36f, 1.0f, 0.85f  // Macro M4
         );
     }
 
     /**
      * Carga el layout desde SharedPreferences aplicando migración automática si existían
-     * las coordenadas grupales antiguas o si se actualizan los defaults ergonómicos V3.
+     * las coordenadas grupales antiguas o si se actualizan los defaults ergonómicos V4.
      */
     public TouchControlsLayout loadFromSharedPreferences(TouchControlsLayout legacyCandidate) {
         TouchControlsLayout defaults = createDefaultDiamondLayout();
@@ -136,10 +137,10 @@ public final class HudLayoutManager {
             migrateLegacyGroupIfNeeded(legacyCandidate, defaults);
         }
 
-        if (!prefs.getBoolean(KEY_MIGRATED_V3, false)) {
-            // Actualizar posiciones por defecto a las ergonómicas corregidas (D-pad, R y diamante alineados)
+        if (!prefs.getBoolean(KEY_MIGRATED_V4, false)) {
+            // Actualizar posiciones a la ergonomía balanceada V4 (desplazando botones de acción y R un poco a la izquierda para que no queden pegados al borde derecho)
             saveToSharedPreferences(defaults);
-            prefs.edit().putBoolean(KEY_MIGRATED_V3, true).apply();
+            prefs.edit().putBoolean(KEY_MIGRATED_V3, true).putBoolean(KEY_MIGRATED_V4, true).apply();
             return defaults;
         }
 
