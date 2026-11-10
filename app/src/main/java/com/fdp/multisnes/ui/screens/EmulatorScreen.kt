@@ -1207,8 +1207,8 @@ private fun DraggableControlHandle(
                     onDragStart = { onSelect() }
                 ) { change, dragAmount ->
                     change.consume()
-                    curX = (curX + dragAmount.x / screenW).coerceIn(0.01f, 0.94f)
-                    curY = (curY + dragAmount.y / screenH).coerceIn(0.06f, 0.92f)
+                    curX = (curX + dragAmount.x / screenW).coerceIn(0.01f, 0.97f)
+                    curY = (curY + dragAmount.y / screenH).coerceIn(0.05f, 0.94f)
                     onMove(curX, curY)
                 }
             },

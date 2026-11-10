@@ -17,6 +17,7 @@ public final class HudLayoutManager {
 
     public static final String PREFS_NAME = "multisnes_hud_layout_prefs";
     private static final String KEY_MIGRATED_V2 = "migrated_individual_abxy_v2";
+    private static final String KEY_MIGRATED_V3 = "migrated_individual_abxy_v3";
 
     public static final float MIN_SCALE = 0.5f;
     public static final float MAX_SCALE = 2.0f;
@@ -67,9 +68,9 @@ public final class HudLayoutManager {
         public RectF computeBoundsPx(ButtonId id, float screenW, float screenH, float density) {
             float w = id.baseWidthDp * density * scale;
             float h = id.baseHeightDp * density * scale;
-            float cx = posX * screenW;
-            float cy = posY * screenH;
-            return new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+            float left = posX * screenW;
+            float top = posY * screenH;
+            return new RectF(left, top, left + w, top + h);
         }
 
         public boolean hitTest(ButtonId id, float touchX, float touchY, float screenW, float screenH, float density) {
@@ -102,37 +103,44 @@ public final class HudLayoutManager {
      * esquina inferior derecha, pero guardando X, Y, B y A como coordenadas 100% independientes.
      */
     public static TouchControlsLayout createDefaultDiamondLayout() {
-        final float diamondCenterX = 0.84f;
-        final float diamondCenterY = 0.69f;
-        final float offsetX = 0.068f;
+        final float diamondCenterX = 0.885f;
+        final float diamondCenterY = 0.690f;
+        final float offsetX = 0.065f;
         final float offsetY = 0.135f;
 
         return new TouchControlsLayout(
-                0.14f, 0.70f, 1.0f, 0.75f, // D-PAD (centro normalizado)
-                0.09f, 0.39f, 1.0f, 0.75f, // Botón L
-                0.91f, 0.39f, 1.0f, 0.75f, // Botón R
-                0.43f, 0.89f, 1.0f, 0.75f, // Botón SELECT
-                0.57f, 0.89f, 1.0f, 0.75f, // Botón START
+                0.055f, 0.58f, 1.0f, 0.75f, // D-PAD (pos X/Y normalizado)
+                0.045f, 0.36f, 1.0f, 0.75f, // Botón L
+                0.845f, 0.36f, 1.0f, 0.75f, // Botón R
+                0.380f, 0.89f, 1.0f, 0.75f, // Botón SELECT
+                0.520f, 0.89f, 1.0f, 0.75f, // Botón START
                 diamondCenterX, diamondCenterY - offsetY, 1.0f, 0.80f, // Button_X (Arriba)
                 diamondCenterX - offsetX, diamondCenterY, 1.0f, 0.80f, // Button_Y (Izquierda)
                 diamondCenterX, diamondCenterY + offsetY, 1.0f, 0.80f, // Button_B (Abajo)
                 diamondCenterX + offsetX, diamondCenterY, 1.0f, 0.80f, // Button_A (Derecha)
-                0.24f, 0.38f, 1.0f, 0.85f, // Macro M1
-                0.32f, 0.38f, 1.0f, 0.85f, // Macro M2
-                0.68f, 0.38f, 1.0f, 0.85f, // Macro M3
-                0.76f, 0.38f, 1.0f, 0.85f  // Macro M4
+                0.20f, 0.36f, 1.0f, 0.85f, // Macro M1
+                0.28f, 0.36f, 1.0f, 0.85f, // Macro M2
+                0.70f, 0.36f, 1.0f, 0.85f, // Macro M3
+                0.78f, 0.36f, 1.0f, 0.85f  // Macro M4
         );
     }
 
     /**
      * Carga el layout desde SharedPreferences aplicando migración automática si existían
-     * las coordenadas grupales antiguas (abxy_group_x / abxy_group_y).
+     * las coordenadas grupales antiguas o si se actualizan los defaults ergonómicos V3.
      */
     public TouchControlsLayout loadFromSharedPreferences(TouchControlsLayout legacyCandidate) {
         TouchControlsLayout defaults = createDefaultDiamondLayout();
 
         if (!prefs.getBoolean(KEY_MIGRATED_V2, false)) {
             migrateLegacyGroupIfNeeded(legacyCandidate, defaults);
+        }
+
+        if (!prefs.getBoolean(KEY_MIGRATED_V3, false)) {
+            // Actualizar posiciones por defecto a las ergonómicas corregidas (D-pad, R y diamante alineados)
+            saveToSharedPreferences(defaults);
+            prefs.edit().putBoolean(KEY_MIGRATED_V3, true).apply();
+            return defaults;
         }
 
         return new TouchControlsLayout(
@@ -264,8 +272,8 @@ public final class HudLayoutManager {
             }
             return activeDraggedButton;
         } else if (action == MotionEvent.ACTION_MOVE && activeDraggedButton != null) {
-            float newNormX = clamp((tx + dragDeltaX) / screenW, 0.04f, 0.96f);
-            float newNormY = clamp((ty + dragDeltaY) / screenH, 0.10f, 0.94f);
+            float newNormX = clamp((tx + dragDeltaX) / screenW, 0.03f, 0.97f);
+            float newNormY = clamp((ty + dragDeltaY) / screenH, 0.08f, 0.95f);
             TouchControlsLayout updated = updateButtonPosition(currentLayout, activeDraggedButton, newNormX, newNormY);
             if (listener != null) {
                 listener.onLayoutUpdated(updated);
