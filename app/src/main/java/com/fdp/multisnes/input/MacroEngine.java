@@ -120,9 +120,10 @@ public final class MacroEngine {
                 slotIndex,
                 newConfig.getLabel(),
                 newConfig.getEnabled(),
-                newConfig.getTargetButtonsMask(),
+                SnesButtons.clampComboMask(newConfig.getTargetButtonsMask()),
                 newConfig.getAutoHoldMode(),
-                clampedInterval
+                clampedInterval,
+                newConfig.getComboDirectMode()
         );
         slots[slotIndex] = sanitized;
         saveSlotToPrefs(slotIndex, sanitized);
@@ -137,6 +138,21 @@ public final class MacroEngine {
         if (slotIndex < 0 || slotIndex >= MACRO_COUNT) return;
         MacroSlotConfig cfg = slots[slotIndex];
         if (cfg == null || !cfg.getEnabled() || cfg.getTargetButtonsMask() == 0) return;
+
+        if (cfg.getComboDirectMode()) {
+            // MODO 3: Combo Directo — los hasta 3 botones se presionan a la vez mientras se mantiene el macro
+            if (pressedDown) {
+                if (!slotActive[slotIndex]) {
+                    slotActive[slotIndex] = true;
+                    applyTargetBitsToNative(cfg.getTargetButtonsMask(), true, false);
+                    notifyActiveChanged();
+                }
+            } else if (slotActive[slotIndex]) {
+                stopSlotInternal(slotIndex);
+                notifyActiveChanged();
+            }
+            return;
+        }
 
         if (cfg.getAutoHoldMode()) {
             // MODO 2: Mantener Presionado (Toggle / Auto-Hold)
@@ -213,7 +229,7 @@ public final class MacroEngine {
         // Re-aplicar cualquier otro macro que siga activo para no apagar botones compartidos
         for (int i = 0; i < MACRO_COUNT; i++) {
             if (i != slotIndex && slotActive[i] && slots[i] != null) {
-                boolean isHigh = slots[i].getAutoHoldMode() || turboPhaseHigh[i];
+                boolean isHigh = slots[i].getAutoHoldMode() || slots[i].getComboDirectMode() || turboPhaseHigh[i];
                 applyTargetBitsToNative(slots[i].getTargetButtonsMask(), isHigh, !isHigh);
             }
         }
@@ -432,13 +448,15 @@ public final class MacroEngine {
             int mask = prefs.getInt(p + "mask", defaultMasks[i]);
             boolean holdMode = prefs.getBoolean(p + "hold_mode", defaultHold[i]);
             int interval = prefs.getInt(p + "interval_ms", defaultIntervals[i]);
+            boolean comboDirect = prefs.getBoolean(p + "combo_direct", false);
             slots[i] = new MacroSlotConfig(
                     i,
                     "M" + (i + 1),
                     enabled,
-                    mask,
+                    SnesButtons.clampComboMask(mask),
                     holdMode,
-                    Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, interval))
+                    Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, interval)),
+                    comboDirect
             );
         }
     }
@@ -450,6 +468,7 @@ public final class MacroEngine {
                 .putInt(p + "mask", cfg.getTargetButtonsMask())
                 .putBoolean(p + "hold_mode", cfg.getAutoHoldMode())
                 .putInt(p + "interval_ms", cfg.getIntervalMs())
+                .putBoolean(p + "combo_direct", cfg.getComboDirectMode())
                 .apply();
     }
 }

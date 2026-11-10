@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MultiSnesViewModel by viewModels()
     private var gamepadDigitalMask = 0
     private var gamepadAxisMask = 0
+    private var volumeKeysMask = 0
     private var menuNavLastDpadKey = 0
 
     // Listener de acciones de sistema para mando externo (Guardar, Cargar último, Rewind y Fast-Forward)
@@ -313,14 +314,22 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val cfg = viewModel.settings.value
         val isMapperOpen = viewModel.showKeyMapper.value
+        val code = event.keyCode
+        val isVolumeKey = SnesButtons.isVolumeKey(code)
+
+        // Las teclas de VOLUMEN +/- del celular funcionan como botones mapeables aunque no haya
+        // un mando externo conectado. Si no están asignadas a nada, conservan su función normal de volumen.
         if (!isMapperOpen &&
             viewModel.route.value == AppScreenRoute.EMULATOR_GAMEPLAY &&
-            cfg.externalControllerEnabled
+            (cfg.externalControllerEnabled || isVolumeKey)
         ) {
-            if (event.repeatCount > 0 && (event.action == KeyEvent.ACTION_DOWN)) {
-                return true
+            val isMappedAnywhere = cfg.hardwareKeyMap.values.any { it == code && it != 0 }
+            if (isVolumeKey && !isMappedAnywhere) {
+                return super.dispatchKeyEvent(event)
             }
-            val code = event.keyCode
+            if (event.repeatCount > 0 && (event.action == KeyEvent.ACTION_DOWN)) {
+                return if (isMappedAnywhere) true else super.dispatchKeyEvent(event)
+            }
             val isDown = event.action == KeyEvent.ACTION_DOWN
             val isUp = event.action == KeyEvent.ACTION_UP
 
@@ -341,19 +350,27 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (matchedBit != 0) {
-                    gamepadDigitalMask = if (isDown) {
-                        gamepadDigitalMask or matchedBit
+                    if (isVolumeKey) {
+                        volumeKeysMask = if (isDown) volumeKeysMask or matchedBit else volumeKeysMask and matchedBit.inv()
+                        viewModel.onDeviceKeysMaskUpdated(volumeKeysMask)
                     } else {
-                        gamepadDigitalMask and matchedBit.inv()
+                        gamepadDigitalMask = if (isDown) {
+                            gamepadDigitalMask or matchedBit
+                        } else {
+                            gamepadDigitalMask and matchedBit.inv()
+                        }
+                        viewModel.onHardwareMaskUpdated(gamepadDigitalMask or gamepadAxisMask)
                     }
-                    viewModel.onHardwareMaskUpdated(gamepadDigitalMask or gamepadAxisMask)
                     return true
                 }
 
-                if (sysOrMacroTriggered) {
+                if (sysOrMacroTriggered || isMappedAnywhere) {
                     return true
                 }
             }
+        } else if (volumeKeysMask != 0 && viewModel.route.value != AppScreenRoute.EMULATOR_GAMEPLAY) {
+            volumeKeysMask = 0
+            viewModel.onDeviceKeysMaskUpdated(0)
         }
         return super.dispatchKeyEvent(event)
     }

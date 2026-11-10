@@ -59,6 +59,39 @@ object SnesButtons {
         return tags.joinToString("+")
     }
 
+    /** Máximo de botones SNES simultáneos permitidos en una combinación de Macro (M1..M4). */
+    const val MAX_MACRO_COMBO_BUTTONS = 3
+
+    /**
+     * Recorta una máscara de Macro para que contenga como máximo [MAX_MACRO_COMBO_BUTTONS] botones
+     * (conserva los bits de menor peso, de forma determinista).
+     */
+    @JvmStatic
+    fun clampComboMask(mask: Int): Int {
+        var result = 0
+        var count = 0
+        for (bit in 0..11) {
+            val b = 1 shl bit
+            if ((mask and b) != 0) {
+                if (count >= MAX_MACRO_COMBO_BUTTONS) break
+                result = result or b
+                count++
+            }
+        }
+        return result
+    }
+
+    fun isVolumeKey(keyCode: Int): Boolean =
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+
+    /** Nombre legible del botón físico asignado (incluye las teclas de volumen del teléfono). */
+    fun keyCodeLabel(keyCode: Int): String = when (keyCode) {
+        0 -> "SIN ASIGNAR"
+        KeyEvent.KEYCODE_VOLUME_UP -> "VOLUMEN +"
+        KeyEvent.KEYCODE_VOLUME_DOWN -> "VOLUMEN -"
+        else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
+    }
+
     fun defaultHardwareKeyMap(): Map<String, Int> = mapOf(
         Action.UP.name to KeyEvent.KEYCODE_DPAD_UP,
         Action.DOWN.name to KeyEvent.KEYCODE_DPAD_DOWN,

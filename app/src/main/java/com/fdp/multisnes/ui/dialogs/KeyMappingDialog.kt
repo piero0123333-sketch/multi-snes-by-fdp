@@ -108,47 +108,57 @@ fun KeyMappingDialog(
 
             OutlinedPixelText(
                 text = if (listeningKeyName != null)
-                    "PULSA UN BOTÓN, GATILLO (L2/R2) O STICK (L3/R3) PARA: $listeningDisplayLabel"
+                    "PULSA UN BOTÓN DEL MANDO, GATILLO (L2/R2), STICK (L3/R3) O VOLUMEN +/- DEL CELULAR PARA: $listeningDisplayLabel"
                 else
-                    "TOCA CUALQUIER FUNCIÓN PARA ASIGNARLE UN BOTÓN DEL MANDO",
+                    "TOCA CUALQUIER FUNCIÓN PARA ASIGNARLE UN BOTÓN DEL MANDO O LAS TECLAS DE VOLUMEN",
                 style = PixelTypography.LabelBold.copy(fontSize = 10.sp),
                 color = if (listeningKeyName != null) SnesPalette.OnlineNeonGreen else Color(0xFFB8B8C8),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Atajos rápidos para L2, R2, L3, R3 cuando está esperando un botón (por si el mando envía L2/R2 solo por eje analógico)
+            // Atajos rápidos cuando está esperando un botón: L2/R2/L3/R3 (por si el mando los envía solo por eje),
+            // teclas de VOLUMEN del teléfono y opción QUITAR para liberar la asignación.
             if (listeningKeyName != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val quickTriggers = listOf(
+                val quickRows = listOf(
+                    listOf(
                         "L2" to KeyEvent.KEYCODE_BUTTON_L2,
                         "R2" to KeyEvent.KEYCODE_BUTTON_R2,
                         "L3 (STICK IZQ)" to KeyEvent.KEYCODE_BUTTON_THUMBL,
                         "R3 (STICK DER)" to KeyEvent.KEYCODE_BUTTON_THUMBR
+                    ),
+                    listOf(
+                        "VOLUMEN +" to KeyEvent.KEYCODE_VOLUME_UP,
+                        "VOLUMEN -" to KeyEvent.KEYCODE_VOLUME_DOWN,
+                        "QUITAR" to 0
                     )
-                    quickTriggers.forEach { (label, code) ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(Color(0xFF3A3454))
-                                .border(1.dp, SnesPalette.OnlineNeonGreen, RoundedCornerShape(5.dp))
-                                .clickable {
-                                    listeningKeyName?.let { target ->
-                                        onBindKey(target, code)
-                                        listeningKeyName = null
+                )
+                quickRows.forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        rowItems.forEach { (label, code) ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(if (code == 0) Color(0xFF5A2A32) else Color(0xFF3A3454))
+                                    .border(1.dp, SnesPalette.OnlineNeonGreen, RoundedCornerShape(5.dp))
+                                    .clickable {
+                                        listeningKeyName?.let { target ->
+                                            onBindKey(target, code)
+                                            listeningKeyName = null
+                                        }
                                     }
-                                }
-                                .padding(vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            OutlinedPixelText(
-                                text = label,
-                                style = PixelTypography.LabelBold.copy(fontSize = 8.sp),
-                                color = Color.White
-                            )
+                                    .padding(vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                OutlinedPixelText(
+                                    text = label,
+                                    style = PixelTypography.LabelBold.copy(fontSize = 8.sp),
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }
@@ -285,8 +295,7 @@ private fun KeyMapRow(
         )
         OutlinedPixelText(
             text = if (isWaiting) "ESPERANDO..."
-            else if (assignedCode == 0) "SIN ASIGNAR"
-            else KeyEvent.keyCodeToString(assignedCode).removePrefix("KEYCODE_"),
+            else SnesButtons.keyCodeLabel(assignedCode),
             style = PixelTypography.LabelBold.copy(fontSize = 10.sp),
             color = SnesPalette.FdpBlue
         )

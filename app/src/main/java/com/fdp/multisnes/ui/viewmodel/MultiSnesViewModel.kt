@@ -110,6 +110,7 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
 
     private var touchButtonsMask = 0
     private var hardwareButtonsMask = 0
+    private var deviceKeysMask = 0
 
     private val vibrator: Vibrator? by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -511,8 +512,17 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
         pushCombinedInputMask()
     }
 
+    /**
+     * Botones del propio celular (teclas VOLUMEN +/-) mapeados a botones SNES.
+     * Funcionan aunque el "Mando externo" esté desactivado en HERRAMIENTAS.
+     */
+    fun onDeviceKeysMaskUpdated(newDeviceMask: Int) {
+        deviceKeysMask = newDeviceMask
+        pushCombinedInputMask()
+    }
+
     private fun pushCombinedInputMask() {
-        val combined = touchButtonsMask or hardwareButtonsMask
+        val combined = touchButtonsMask or hardwareButtonsMask or deviceKeysMask
         val coordinator = _activeCoordinator.value
         if (coordinator != null) {
             coordinator.updateLocalButtons(combined)
@@ -737,6 +747,7 @@ class MultiSnesViewModel(application: Application) : AndroidViewModel(applicatio
         _activeGame.value = null
         touchButtonsMask = 0
         hardwareButtonsMask = 0
+        deviceKeysMask = 0
         _route.value = AppScreenRoute.CATALOG
 
         if (finishedGame != null) {

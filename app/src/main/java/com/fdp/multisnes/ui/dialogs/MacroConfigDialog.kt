@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -43,8 +44,9 @@ import kotlin.math.roundToInt
 /**
  * MÓDULO 3: Configuración interactiva de los 4 Macros (M1, M2, M3, M4):
  * - Activar/Desactivar botón flotante en pantalla
- * - Elegir botón o combinación de botones de SNES (A, B, X, Y, L, R, START, SELECT, D-PAD)
- * - Elegir Modo 1 (Repetición Turbo cada 10..500 ms) o Modo 2 (Mantener Presionado / Auto-Hold)
+ * - Elegir combinación de 1 hasta 3 botones de SNES simultáneos (A, B, X, Y, L, R, START, SELECT, D-PAD)
+ * - Elegir Modo 1 (Repetición Turbo cada 10..500 ms), Modo 2 (Mantener Presionado / Auto-Hold)
+ *   o Modo 3 (Combo Directo: presiona juntos los botones mientras se mantiene el macro)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -150,48 +152,53 @@ fun MacroConfigDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val isTurbo = !currentSlot.autoHoldMode
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isTurbo) SnesPalette.LoadBlueMain else Color(0xFF383846))
-                            .border(2.dp, if (isTurbo) SnesPalette.OnlineNeonGreen else Color.Black, RoundedCornerShape(6.dp))
-                            .clickable {
-                                onUpdateMacroSlot(selectedTab, currentSlot.copy(autoHoldMode = false))
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        OutlinedPixelText(
-                            text = "REPETICIÓN\n(TURBO)",
-                            style = PixelTypography.LabelBold.copy(fontSize = 10.sp, lineHeight = 11.sp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (!isTurbo) SnesPalette.PlayGreenMain else Color(0xFF383846))
-                            .border(2.dp, if (!isTurbo) SnesPalette.OnlineNeonGreen else Color.Black, RoundedCornerShape(6.dp))
-                            .clickable {
-                                onUpdateMacroSlot(selectedTab, currentSlot.copy(autoHoldMode = true))
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        OutlinedPixelText(
-                            text = "MANTENER\n(AUTO-HOLD)",
-                            style = PixelTypography.LabelBold.copy(fontSize = 10.sp, lineHeight = 11.sp)
-                        )
-                    }
+                    val isCombo = currentSlot.comboDirectMode
+                    val isTurbo = !isCombo && !currentSlot.autoHoldMode
+                    val isHold = !isCombo && currentSlot.autoHoldMode
+                    MacroModeChip(
+                        text = "REPETICIÓN\n(TURBO)",
+                        selected = isTurbo,
+                        selectedColor = SnesPalette.LoadBlueMain,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onUpdateMacroSlot(selectedTab, currentSlot.copy(autoHoldMode = false, comboDirectMode = false))
+                        }
+                    )
+                    MacroModeChip(
+                        text = "MANTENER\n(AUTO-HOLD)",
+                        selected = isHold,
+                        selectedColor = SnesPalette.PlayGreenMain,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onUpdateMacroSlot(selectedTab, currentSlot.copy(autoHoldMode = true, comboDirectMode = false))
+                        }
+                    )
+                    MacroModeChip(
+                        text = "COMBO\n(DIRECTO)",
+                        selected = isCombo,
+                        selectedColor = Color(0xFFB4532A),
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onUpdateMacroSlot(selectedTab, currentSlot.copy(comboDirectMode = true))
+                        }
+                    )
                 }
 
+                OutlinedPixelText(
+                    text = when {
+                        currentSlot.comboDirectMode -> "Presiona juntos los botones elegidos mientras mantengas el macro."
+                        currentSlot.autoHoldMode -> "Un toque los deja presionados; otro toque los suelta."
+                        else -> "Pulsa y suelta los botones elegidos repetidamente."
+                    },
+                    style = PixelTypography.LabelBold.copy(fontSize = 9.sp),
+                    color = Color(0xFFB8B8C8),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                )
+
                 // 3. Intervalo en milisegundos (10 ms a 500 ms) cuando está en Modo Repetición (Turbo)
-                if (!currentSlot.autoHoldMode) {
+                if (!currentSlot.autoHoldMode && !currentSlot.comboDirectMode) {
                     val fraction = ((currentSlot.intervalMs - MacroEngine.MIN_INTERVAL_MS).toFloat() /
                         (MacroEngine.MAX_INTERVAL_MS - MacroEngine.MIN_INTERVAL_MS).toFloat()).coerceIn(0f, 1f)
 
@@ -223,11 +230,13 @@ fun MacroConfigDialog(
                     )
                 }
 
-                // 4. Botones de SNES asignados al Macro (permite 1 botón o varios en simultáneo)
+                // 4. Combinación de botones SNES del Macro (de 1 hasta 3 botones al mismo tiempo)
+                val selectedCount = Integer.bitCount(currentSlot.targetButtonsMask)
+                val comboFull = selectedCount >= SnesButtons.MAX_MACRO_COMBO_BUTTONS
                 OutlinedPixelText(
-                    text = "BOTONES SNES AFECTADOS (${SnesButtons.formatBitMaskSummary(currentSlot.targetButtonsMask)}):",
+                    text = "COMBINACIÓN ($selectedCount/${SnesButtons.MAX_MACRO_COMBO_BUTTONS}): ${SnesButtons.formatBitMaskSummary(currentSlot.targetButtonsMask)}",
                     style = PixelTypography.LabelBold.copy(fontSize = 11.sp),
-                    color = Color(0xFFC8C8DC),
+                    color = if (comboFull) SnesPalette.StarGold else Color(0xFFC8C8DC),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Start
                 )
 
@@ -238,8 +247,10 @@ fun MacroConfigDialog(
                 ) {
                     SnesButtons.Action.entries.forEach { action ->
                         val active = (currentSlot.targetButtonsMask and action.bitMask) != 0
+                        val blocked = !active && comboFull
                         Box(
                             modifier = Modifier
+                                .alpha(if (blocked) 0.35f else 1f)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (active) Color(0xFF4F86E8) else Color(0xFF2C2C38))
                                 .border(
@@ -247,7 +258,7 @@ fun MacroConfigDialog(
                                     color = if (active) SnesPalette.OnlineNeonGreen else Color.Black,
                                     shape = RoundedCornerShape(6.dp)
                                 )
-                                .clickable {
+                                .clickable(enabled = !blocked) {
                                     val nextMask = if (active) {
                                         currentSlot.targetButtonsMask and action.bitMask.inv()
                                     } else {
@@ -264,6 +275,14 @@ fun MacroConfigDialog(
                         }
                     }
                 }
+
+                if (comboFull) {
+                    OutlinedPixelText(
+                        text = "MÁXIMO 3 BOTONES. QUITA UNO PARA ELEGIR OTRO.",
+                        style = PixelTypography.LabelBold.copy(fontSize = 9.sp),
+                        color = SnesPalette.StarGold
+                    )
+                }
             }
 
             Box(
@@ -279,5 +298,29 @@ fun MacroConfigDialog(
                 OutlinedPixelText("GUARDAR Y CERRAR", style = PixelTypography.LabelBold.copy(fontSize = 12.sp))
             }
         }
+    }
+}
+
+@Composable
+private fun MacroModeChip(
+    text: String,
+    selected: Boolean,
+    selectedColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) selectedColor else Color(0xFF383846))
+            .border(2.dp, if (selected) SnesPalette.OnlineNeonGreen else Color.Black, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        OutlinedPixelText(
+            text = text,
+            style = PixelTypography.LabelBold.copy(fontSize = 9.sp, lineHeight = 10.sp)
+        )
     }
 }
